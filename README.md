@@ -1,6 +1,6 @@
 # Buddy System
 
-![Buddy System Banner](./docs/buddy_system_banner.jpg)
+![Buddy System Banner](./docs/buddy_system_banner_v2.jpg)
 
 **Buddy System** is a lightweight coordination pattern and Python CLI for running multiple local AI harnesses as a collaborative crew rather than a pile of disconnected chats.
 
