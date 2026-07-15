@@ -1,0 +1,13 @@
+{
+  "memory_file": "~/.config/buddy/memory.json",
+  "journal_file": "~/.local/state/buddy/journal.md",
+  "status_file": "~/.local/state/buddy/status.json",
+  "vault_path": "~/BuddyVault",
+  "brain_dirs": [
+    "~/.gemini/antigravity-cli/brain",
+    "~/.gemini/antigravity/brain",
+    "~/.gemini/antigravity-ide/brain"
+  ],
+  "codex_sessions_root": "~/.codex/sessions",
+  "opencode_db": "~/.local/share/opencode/opencode.db"
+}
