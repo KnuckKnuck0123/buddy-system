@@ -4,13 +4,15 @@ from buddy.config import load_config, DEFAULT_CONFIG
 
 class TestConfig(unittest.TestCase):
     def test_default_config(self):
-        config = load_config()
-        self.assertEqual(
-            config["memory_file"], os.path.expanduser(DEFAULT_CONFIG["memory_file"])
-        )
-        self.assertEqual(
-            config["vault_path"], os.path.expanduser(DEFAULT_CONFIG["vault_path"])
-        )
+        from unittest.mock import patch
+        with patch("os.path.exists", return_value=False):
+            config = load_config()
+            self.assertEqual(
+                config["memory_file"], os.path.expanduser(DEFAULT_CONFIG["memory_file"])
+            )
+            self.assertEqual(
+                config["vault_path"], os.path.expanduser(DEFAULT_CONFIG["vault_path"])
+            )
         
     def test_env_override(self):
         os.environ["BUDDY_VAULT_PATH"] = "/tmp/my_vault"

@@ -46,7 +46,7 @@ Once installed, the `buddy` command manages your local coordination loop:
 * **`buddy status`**: Renders a formatted overview of active projects, rule constraints, technical stacks, and log files.
 
 ### 🔄 Sync Loop
-* **`buddy sync [--conv-id ID] [--summary TEXT] [--next-steps TEXT]`**: Automatically scans agent transcript logs, updates your memory JSON, updates Obsidian project matrix tables, and appends session details to your work journal.
+* **`buddy sync [--conv-id ID] [--summary TEXT] [--next-steps TEXT] [--harness TYPE] [--parent-conv-id ID] [--subagent-role ROLE]`**: Automatically scans agent transcript logs, updates your memory JSON, updates Obsidian project matrix tables, and appends session details to your work journal with subagent lineage and harness options.
 
 ### 📋 Coordination Board & Claims
 * **`buddy claim <task_id> [--owner OWNER] [--task TEXT] [--scope SCOPE]`**: Claims a task from the Queue and moves it into the Active Claims section with a started timestamp.
@@ -114,6 +114,7 @@ Ensure your markdown dashboard directories contain the required heading files:
 ## Documentation
 
 * **[Operating Doctrine](./docs/operating-doctrine.md)**: Rules and expected behaviors for agents participating in the coordination loop.
+* **[Sync Policy](./docs/sync-policy.md)**: Specifications for end-of-session syncs, subagent lineage, and multi-harness log synchronization.
 * **[Roles and Surfaces](./docs/roles-and-surfaces.md)**: Explains the breakdown of agent lanes and operating cockpits.
 * **[Local Architecture Setup](./docs/local-architecture.md)**: Example local wiring for a Buddy System install.
 * **[Open Questions](./docs/open-questions.md)**: Conceptual topics and areas of active research.

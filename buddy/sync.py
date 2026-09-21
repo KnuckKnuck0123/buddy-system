@@ -149,6 +149,40 @@ def update_journal_file(journal_file, conv_id, entry_text):
         log_error(f"Failed to update journal file: {e}")
         return False
 
+def clean_and_filter_prompt(raw_text):
+    if not raw_text:
+        return None
+    text = raw_text.strip()
+    if re.search(r"^(You have viewed or edited files|# Antigravity System Prompt|These rules provide important context|<ADDITIONAL_METADATA>|<USER_SETTINGS_CHANGE>)", text):
+        return None
+    match = re.search(r"<USER_REQUEST>\s*(.*?)\s*</USER_REQUEST>", text, re.DOTALL)
+    if match:
+        text = match.group(1).strip()
+    text = re.sub(r"</?(USER_REQUEST|ADDITIONAL_METADATA|USER_SETTINGS_CHANGE)[^>]*>", "", text).strip()
+    if not text or text.startswith("The user changed setting") or text.startswith("The current local time is:"):
+        return None
+    return text
+
+def is_garbage_file(target):
+    if not target:
+        return True
+    b = os.path.basename(target).strip()
+    if b in [".DS_Store", "pruner_status.json", "noah_memory.json", "journal.md", "status.json", "config.json"]:
+        return True
+    if b.endswith(".pyc") or b.endswith(".tmp") or b.endswith(".log"):
+        return True
+    if "__pycache__" in target or "/.git/" in target or "/scratch/" in target:
+        return True
+    return False
+
+def is_garbage_command(cmd):
+    if not cmd:
+        return True
+    c = cmd.strip()
+    if re.match(r"^(which(\s+.*)?|pwd|git status|ls(\s+.*)?)$", c, re.IGNORECASE):
+        return True
+    return False
+
 def parse_gemini_transcript(transcript_path, memory_updates):
     prompts = []
     created_files = set()
@@ -172,7 +206,9 @@ def parse_gemini_transcript(transcript_path, memory_updates):
                 if step_type == "USER_INPUT" or (source == "USER_EXPLICIT" and step.get("content")):
                     content = step.get("content", "").strip()
                     if content:
-                        prompts.append(content)
+                        cleaned = clean_and_filter_prompt(content)
+                        if cleaned and cleaned not in prompts:
+                            prompts.append(cleaned)
                         
                         rule_match = re.search(r"\[(?:rule|memory)\]\s*(.*)", content, re.IGNORECASE)
                         if rule_match:
@@ -211,15 +247,15 @@ def parse_gemini_transcript(transcript_path, memory_updates):
                         
                         if name == "write_to_file":
                             target = args.get("TargetFile", "").strip()
-                            if target:
+                            if target and not is_garbage_file(target):
                                 created_files.add(os.path.basename(target))
                         elif name in ["replace_file_content", "multi_replace_file_content"]:
                             target = args.get("TargetFile", "").strip()
-                            if target:
+                            if target and not is_garbage_file(target):
                                 modified_files.add(os.path.basename(target))
                         elif name == "run_command":
                             cmd = args.get("CommandLine", "").strip()
-                            if cmd:
+                            if cmd and not is_garbage_command(cmd):
                                 executed_commands.add(cmd)
             except Exception:
                 continue
@@ -250,7 +286,9 @@ def parse_codex_transcript(rollout_path, memory_updates):
                     for item in content:
                         if item.get("type") == "input_text" and item.get("text"):
                             text = item.get("text").strip()
-                            prompts.append(text)
+                            cleaned = clean_and_filter_prompt(text)
+                            if cleaned and cleaned not in prompts:
+                                prompts.append(cleaned)
                             
                             rule_match = re.search(r"\[(?:rule|memory)\]\s*(.*)", text, re.IGNORECASE)
                             if rule_match:
@@ -289,14 +327,20 @@ def parse_codex_transcript(rollout_path, memory_updates):
                                 cmd_str = cmd_match.group(1).encode().decode('unicode-escape')
                             except Exception:
                                 cmd_str = cmd_match.group(1)
-                            executed_commands.add(cmd_str.strip())
+                            cmd_clean = cmd_str.strip()
+                            if cmd_clean and not is_garbage_command(cmd_clean):
+                                executed_commands.add(cmd_clean)
                     elif tool_name == "apply_patch":
                         files_added = re.findall(r"\*\*\* Add File:\s*([^\n]+)", tool_input)
                         for fa in files_added:
-                            created_files.add(os.path.basename(fa.strip()))
+                            f_clean = os.path.basename(fa.strip())
+                            if f_clean and not is_garbage_file(f_clean):
+                                created_files.add(f_clean)
                         files_updated = re.findall(r"\*\*\* Update File:\s*([^\n]+)", tool_input)
                         for fu in files_updated:
-                            modified_files.add(os.path.basename(fu.strip()))
+                            f_clean = os.path.basename(fu.strip())
+                            if f_clean and not is_garbage_file(f_clean):
+                                modified_files.add(f_clean)
             except Exception:
                 continue
     return session_start, prompts, created_files, modified_files, executed_commands
@@ -331,7 +375,9 @@ def parse_opencode_transcript(session_id, opencode_db, memory_updates):
             if part.get("type") != "text" or not part.get("text", "").strip():
                 continue
             text = part["text"].strip()
-            prompts.append(text)
+            cleaned = clean_and_filter_prompt(text)
+            if cleaned and cleaned not in prompts:
+                prompts.append(cleaned)
 
             rule_match = re.search(r"\[(?:rule|memory)\]\s*(.*)", text, re.IGNORECASE)
             if rule_match and rule_match.group(1).strip():
@@ -360,22 +406,33 @@ def parse_opencode_transcript(session_id, opencode_db, memory_updates):
         tool_input = state.get("input", {}) if isinstance(state, dict) else {}
         if tool_name in {"bash", "shell"}:
             command = tool_input.get("command", "").strip()
-            if command:
+            if command and not is_garbage_command(command):
                 executed_commands.add(command)
         elif tool_name in {"write", "write_file"}:
             target = tool_input.get("filePath") or tool_input.get("path") or tool_input.get("file_path")
-            if target:
+            if target and not is_garbage_file(target):
                 created_files.add(os.path.basename(target))
         elif tool_name in {"edit", "patch", "apply_patch", "multiedit"}:
             target = tool_input.get("filePath") or tool_input.get("path") or tool_input.get("file_path")
-            if target:
+            if target and not is_garbage_file(target):
                 modified_files.add(os.path.basename(target))
 
     return session_start, prompts, created_files, modified_files, executed_commands
 
-def sync_conversation(conv_id, user_summary, next_steps, config):
+def sync_conversation(conv_id, user_summary, next_steps, config, harness_override=None, parent_conv_id=None, subagent_role=None):
     conv_type = "gemini"
-    if not conv_id:
+    if harness_override:
+        conv_type = harness_override.lower()
+        if not conv_id:
+            conv_id, conv_path, _ = get_latest_conv(config)
+            if not conv_id:
+                log_error("No conversation logs found.")
+                return False
+        else:
+            conv_path, _ = find_conv_by_id(conv_id, config)
+            if not conv_path:
+                conv_path = conv_id
+    elif not conv_id:
         conv_id, conv_path, conv_type = get_latest_conv(config)
         if not conv_id:
             log_error("No conversation logs found.")
@@ -387,6 +444,11 @@ def sync_conversation(conv_id, user_summary, next_steps, config):
             log_error(f"Conversation {conv_id} not found in Gemini, Codex, or OpenCode sessions.")
             return False
             
+    if not user_summary:
+        log_info("Policy Tip: --summary was not provided. Standard policy recommends providing a concise summary.")
+    if not next_steps:
+        log_info("Policy Tip: --next-steps was not provided. Standard policy recommends providing actionable next steps.")
+
     log_info(f"Processing logs in {conv_path}...")
     
     memory_updates = {
@@ -423,6 +485,10 @@ def sync_conversation(conv_id, user_summary, next_steps, config):
     journal_entry = f"### 🛠️ Session Archive: {conv_id}\n"
     journal_entry += f"* **Recorded**: `{session_time}`\n"
     journal_entry += f"* **Agent Frame**: `{conv_type.upper()}`\n"
+    if parent_conv_id:
+        journal_entry += f"* **Parent Session**: `{parent_conv_id}`\n"
+    if subagent_role:
+        journal_entry += f"* **Subagent Role**: `{subagent_role}`\n"
     if user_summary:
         journal_entry += f"* **Summary**: {user_summary}\n"
     if next_steps:
@@ -451,37 +517,29 @@ def sync_conversation(conv_id, user_summary, next_steps, config):
     if update_journal_file(config["journal_file"], conv_id, journal_entry):
         log_success("Journal successfully updated.")
         
-    # 2. Update memory JSON
-    memory_file = config["memory_file"]
-    memory_data = load_json_file(memory_file, {"last_updated": "", "active_projects": {}, "technical_additions": [], "operational_rules": []})
-    
-    existing_rules = {r.lower(): r for r in memory_data.get("operational_rules", [])}
-    for r in memory_updates["operational_rules"]:
-        existing_rules[r.lower()] = r
-    memory_data["operational_rules"] = list(existing_rules.values())
-    
-    existing_tech = {t.lower(): t for t in memory_data.get("technical_additions", [])}
-    for t in memory_updates["technical_additions"]:
-        existing_tech[t.lower()] = t
-    memory_data["technical_additions"] = list(existing_tech.values())
-    
-    if "active_projects" not in memory_data:
-        memory_data["active_projects"] = {}
+    # 2. Update Markdown Vault State (Project briefs, Dashboard, Index)
     for p_name, p_info in memory_updates["projects"].items():
-        memory_data["active_projects"][p_name] = {
-            "status": p_info["status"],
-            "path": p_info["path"]
-        }
         check_and_create_project_brief(p_name, config)
         update_dashboard_table(p_name, p_info["status"], p_info["next_action"], config)
         update_project_index(p_name, config, active=(p_info["status"].lower() not in ["stalled", "complete"]))
         
-    memory_data["last_updated"] = datetime.now().isoformat()
-    memory_data["technical_additions"] = sorted(list(set(memory_data["technical_additions"])))
-    memory_data["operational_rules"] = list(set(memory_data["operational_rules"]))
-    
-    save_json_file(memory_file, memory_data)
-    log_success("Memory JSON updated.")
+    # Optional legacy memory JSON update if configured
+    memory_file = config.get("memory_file")
+    if memory_file and os.path.exists(os.path.dirname(memory_file)):
+        memory_data = load_json_file(memory_file, {"last_updated": "", "active_projects": {}, "technical_additions": [], "operational_rules": []})
+        existing_rules = {r.lower(): r for r in memory_data.get("operational_rules", [])}
+        for r in memory_updates["operational_rules"]:
+            existing_rules[r.lower()] = r
+        memory_data["operational_rules"] = list(existing_rules.values())
+        existing_tech = {t.lower(): t for t in memory_data.get("technical_additions", [])}
+        for t in memory_updates["technical_additions"]:
+            existing_tech[t.lower()] = t
+        memory_data["technical_additions"] = list(existing_tech.values())
+        memory_data["last_updated"] = datetime.now().isoformat()
+        memory_data["technical_additions"] = sorted(list(set(memory_data["technical_additions"])))
+        memory_data["operational_rules"] = list(set(memory_data["operational_rules"]))
+        save_json_file(memory_file, memory_data)
+        log_success("Legacy memory JSON updated.")
     
     # 3. Add to processed conversations in pruner status
     status_file = config["status_file"]
